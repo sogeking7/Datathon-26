@@ -14,6 +14,18 @@ if settings.api_key == "dev-key-change-me":
     logging.warning("API_KEY не задан, используется ключ по умолчанию. Задайте API_KEY перед публикацией.")
 
 app = FastAPI(title="Контроль кассовой дисциплины", version="0.1.0")
+
+
+@app.on_event("startup")
+def _warmup() -> None:
+    # Первая загрузка модели и компиляция Triton-ядер занимают минуты; делаем это до первого
+    # запроса жюри, а не внутри 5-минутного лимита на видео.
+    if settings.detector == "videojev":
+        import threading
+
+        from .vj.detector import warmup
+
+        threading.Thread(target=warmup, name="videojev-warmup", daemon=True).start()
 STATIC = Path(__file__).parent / "static"
 CHUNK = 1024 * 1024
 

@@ -1,13 +1,14 @@
 """Анализ видео: детекторы → события → ответ в формате API.
 
-Детектор получает путь к видео и возвращает список Detection. Сейчас подключён только
-BaselineDetector-заглушка; реальные детекторы (сейф, дверь, люди, счётчик) добавляются в DETECTORS.
+Детектор получает путь к видео и возвращает список Detection. Основной — VideoJevDetector
+(app/vj), включается DETECTOR=videojev; BaselineDetector-заглушка нужна для тестов без GPU.
 """
 
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Protocol
 
+from .config import settings
 from .rules import CATALOG, format_rules
 from .video import VideoInfo, grab_frame, probe, to_jpeg_base64
 
@@ -39,7 +40,17 @@ class BaselineDetector:
         return []
 
 
-DETECTORS: list[Detector] = [BaselineDetector()]
+def _detectors() -> list[Detector]:
+    # DETECTOR=videojev включает модель (нужны GPU и requirements-gpu.txt); по умолчанию заглушка,
+    # чтобы тесты и UI работали без GPU.
+    if settings.detector == "videojev":
+        from .vj.detector import VideoJevDetector
+
+        return [VideoJevDetector()]
+    return [BaselineDetector()]
+
+
+DETECTORS: list[Detector] = _detectors()
 
 # Ниже этого порога событие не попадает в ответ (ложные срабатывания штрафуются).
 MIN_CONFIDENCE = 0.5
