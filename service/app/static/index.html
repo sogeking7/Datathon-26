@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Контроль кассовой дисциплины</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --card: #fff; --text: #16181d; --muted: #5f6672; --border: #e2e5ea;
+    --accent: #1f6feb; --ok: #1a7f37; --ok-bg: #e7f5ec; --bad: #c4302b; --bad-bg: #fdecea;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0f1115; --card: #171a21; --text: #e7e9ee; --muted: #9aa2af; --border: #2a2f39;
+      --accent: #4c8dff; --ok: #3fb950; --ok-bg: #12261a; --bad: #ff6b61; --bad-bg: #2d1514;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  main { max-width: 1080px; margin: 0 auto; padding: 24px 16px 64px; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  .sub { color: var(--muted); margin: 0 0 24px; }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 20px; margin-bottom: 16px; }
+  #drop { border: 2px dashed var(--border); border-radius: 12px; padding: 32px; text-align: center; cursor: pointer; }
+  #drop.over { border-color: var(--accent); }
+  button { background: var(--accent); color: #fff; border: 0; border-radius: 8px; padding: 10px 18px; font: inherit; cursor: pointer; }
+  button:disabled { opacity: .5; cursor: default; }
+  .bar { height: 6px; background: var(--border); border-radius: 3px; overflow: hidden; margin-top: 12px; }
+  .bar > div { height: 100%; width: 0; background: var(--accent); transition: width .3s; }
+  #status { color: var(--muted); margin-top: 8px; min-height: 1.5em; }
+  .layout { display: grid; grid-template-columns: minmax(0, 340px) minmax(0, 1fr); gap: 16px; align-items: start; }
+  @media (max-width: 760px) { .layout { grid-template-columns: 1fr; } }
+  video { width: 100%; border-radius: 8px; background: #000; max-height: 70vh; }
+  .verdict { font-size: 18px; font-weight: 600; padding: 12px 16px; border-radius: 8px; margin-bottom: 16px; }
+  .verdict.ok { background: var(--ok-bg); color: var(--ok); }
+  .verdict.bad { background: var(--bad-bg); color: var(--bad); }
+  .viol h3 { margin: 0 0 6px; font-size: 16px; }
+  .tc { display: inline-block; font-variant-numeric: tabular-nums; background: var(--bad-bg); color: var(--bad);
+        border-radius: 6px; padding: 2px 8px; font-weight: 600; cursor: pointer; margin-right: 8px; }
+  .frames { display: flex; gap: 8px; overflow-x: auto; margin: 12px 0; }
+  .frames figure { margin: 0; flex: 0 0 auto; }
+  .frames img { height: 200px; border-radius: 6px; border: 1px solid var(--border); cursor: zoom-in; display: block; }
+  .frames figcaption { color: var(--muted); font-size: 12px; }
+  .rule { border-left: 3px solid var(--border); padding: 4px 0 4px 12px; margin-top: 8px; color: var(--muted); font-size: 14px; }
+  .rule q { color: var(--text); }
+  a { color: var(--accent); }
+  .note { color: var(--muted); font-size: 13px; }
+  dialog { border: 0; padding: 0; background: transparent; max-width: 95vw; }
+  dialog img { max-width: 95vw; max-height: 90vh; border-radius: 8px; }
+  dialog::backdrop { background: rgba(0,0,0,.8); }
+</style>
+</head>
+<body>
+<main>
+  <h1>Контроль кассовой дисциплины</h1>
+  <p class="sub">Загрузите видеозапись кассы. Сервис найдёт признаки возможных нарушений и покажет кадр, время и норму НБРК.</p>
+
+  <section class="card">
+    <div id="drop">
+      <p><strong>Перетащите видео сюда</strong> или нажмите, чтобы выбрать файл (.mov)</p>
+      <input id="file" type="file" accept=".mov,.mp4,video/*" hidden>
+      <p id="fname" class="note"></p>
+    </div>
+    <div style="margin-top:12px"><button id="go" disabled>Проверить</button></div>
+    <div class="bar"><div id="prog"></div></div>
+    <div id="status"></div>
+  </section>
+
+  <section id="result" hidden>
+    <div class="layout">
+      <div class="card"><video id="player" controls muted playsinline></video></div>
+      <div>
+        <div id="verdict" class="verdict"></div>
+        <div id="list"></div>
+        <p class="note">Результат — подсказка для проверяющего, а не окончательное заключение.
+          Выводы, требующие невидимых на видео данных (проводки, сверки), сервис не делает.</p>
+      </div>
+    </div>
+  </section>
+</main>
+<dialog id="zoom"><img alt=""></dialog>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const drop = $("drop"), input = $("file"), go = $("go");
+let file = null, poll = null;
+
+const fmt = (s) => { const m = Math.floor(s / 60); return `${m}:${(s % 60).toFixed(1).padStart(4, "0")}`; };
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+function pick(f) {
+  if (!f) return;
+  file = f; $("fname").textContent = `${f.name} · ${(f.size / 1048576).toFixed(1)} МБ`; go.disabled = false;
+}
+drop.onclick = () => input.click();
+input.onchange = () => pick(input.files[0]);
+drop.ondragover = (e) => { e.preventDefault(); drop.classList.add("over"); };
+drop.ondragleave = () => drop.classList.remove("over");
+drop.ondrop = (e) => { e.preventDefault(); drop.classList.remove("over"); pick(e.dataTransfer.files[0]); };
+
+function setProgress(p, text) { $("prog").style.width = `${Math.round(p * 100)}%`; $("status").textContent = text; }
+
+go.onclick = () => {
+  if (!file) return;
+  go.disabled = true; clearInterval(poll); $("result").hidden = true;
+  const fd = new FormData(); fd.append("file", file);
+  const xhr = new XMLHttpRequest();
+  xhr.open("POST", "/ui/analyze");
+  xhr.upload.onprogress = (e) => e.lengthComputable && setProgress(e.loaded / e.total * 0.3, "Загрузка видео…");
+  xhr.onload = () => {
+    if (xhr.status !== 200) { fail(xhr.responseText); return; }
+    const { job_id } = JSON.parse(xhr.responseText);
+    setProgress(0.3, "Анализ видео…");
+    poll = setInterval(() => check(job_id), 1500);
+  };
+  xhr.onerror = () => fail("Сеть недоступна");
+  xhr.send(fd);
+};
+
+function fail(msg) {
+  clearInterval(poll); go.disabled = false;
+  try { msg = JSON.parse(msg).detail || msg; } catch {}
+  setProgress(0, `Ошибка: ${msg}`);
+}
+
+async function check(id) {
+  const r = await fetch(`/ui/jobs/${id}`);
+  const j = await r.json();
+  if (!r.ok) return fail(j.detail || r.status);
+  if (j.status === "processing") return setProgress(0.3 + 0.7 * (j.progress || 0), `Анализ видео… ${Math.round((j.progress || 0) * 100)}%`);
+  clearInterval(poll); go.disabled = false;
+  if (j.status === "failed") return fail(j.error || "Ошибка обработки");
+  setProgress(1, "Готово");
+  render(j);
+}
+
+function seek(t) { const v = $("player"); v.currentTime = t; v.pause(); v.scrollIntoView({ behavior: "smooth", block: "nearest" }); }
+
+function render(j) {
+  $("player").src = URL.createObjectURL(file);
+  const bad = j.verdict === "violation";
+  const v = $("verdict");
+  v.className = `verdict ${bad ? "bad" : "ok"}`;
+  v.textContent = bad ? `Обнаружены признаки возможных нарушений: ${j.violations.length}` : "Нарушение не обнаружено";
+  $("list").innerHTML = j.violations.map((x) => `
+    <article class="card viol">
+      <h3><span class="tc" data-t="${x.timecode_sec}">${fmt(x.timecode_sec)}</span>${esc(x.type)}</h3>
+      <div class="frames">${x.evidence_frames.map((f) => `
+        <figure><img src="data:image/jpeg;base64,${f.image_base64}" alt="Кадр ${fmt(f.timestamp_sec)}">
+        <figcaption>${fmt(f.timestamp_sec)}</figcaption></figure>`).join("")}</div>
+      <p>${esc(x.description)}</p>
+      ${(x.rules || []).map((r) => `<div class="rule">${esc(r.document)}, <strong>${esc(r.clause)}</strong><br>
+        <q>${esc(r.quote)}</q><br><a href="${esc(r.url)}" target="_blank" rel="noopener">adilet.zan.kz</a></div>`).join("")}
+    </article>`).join("");
+  $("list").querySelectorAll(".tc").forEach((el) => el.onclick = () => seek(+el.dataset.t));
+  $("list").querySelectorAll(".frames img").forEach((el) => el.onclick = () => { $("zoom").querySelector("img").src = el.src; $("zoom").showModal(); });
+  $("result").hidden = false;
+}
+$("zoom").onclick = () => $("zoom").close();
+</script>
+</body>
+</html>
