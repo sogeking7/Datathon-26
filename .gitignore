@@ -1,0 +1,14 @@
+# Данные организатора — только в рамках хакатона, не публикуем
+open/
+*.mov
+*.mp4
+*.docx
+*.xlsx
+
+.DS_Store
+.claude/
+__pycache__/
+.venv/
+.env
+data/
+.pytest_cache/
