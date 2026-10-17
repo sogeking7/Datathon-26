@@ -12,6 +12,8 @@ class Settings(BaseSettings):
     workers: int = 2
     # ТЗ: результат нужен за 5 минут; задача, которая не уложилась, помечается failed.
     job_timeout_sec: int = 280
+    # baseline — заглушка без модели; videojev — VideoJev-4B на GPU (см. app/vj, ml/README.md).
+    detector: str = "baseline"
     allowed_extensions: tuple[str, ...] = (".mov", ".mp4", ".m4v", ".avi", ".mkv")
 
 

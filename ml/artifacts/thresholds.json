@@ -1,0 +1,10 @@
+{
+ "default": 0.45,
+ "per_type": {
+  "UNATTENDED_CASH": 0.25,
+  "NO_COUNTER": 0.7,
+  "UNAUTHORIZED_PERSON": 0.05,
+  "CASH_EXPOSED_TO_VISITOR": 0.15
+ },
+ "max_events": 1
+}
