@@ -95,3 +95,15 @@ def test_broken_video_fails_gracefully():
     job = _wait(r.json()["job_id"])
     assert job["status"] == "failed"
     assert job["error"]
+
+
+def test_openapi_documents_public_api():
+    spec = client.get("/openapi.json").json()
+    assert spec["components"]["securitySchemes"]["APIKeyHeader"] == {
+        "type": "apiKey", "in": "header", "name": "X-API-Key", "description": "Ключ API, выданный жюри"}
+    paths = spec["paths"]
+    assert set(paths) == {"/api/v1/analyze", "/api/v1/jobs/{job_id}", "/api/v1/violation-types", "/health"}
+    job = spec["components"]["schemas"]["Job"]["properties"]
+    assert {"status", "verdict", "violations", "error", "progress"} <= set(job)
+    assert "401" in paths["/api/v1/analyze"]["post"]["responses"]
+    assert client.get("/docs").status_code == 200
