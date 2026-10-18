@@ -1,0 +1,336 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Отчёт по видео</title>
+<!-- Макет экрана отчёта. Данные демо: событие 57 с — из labels.json (Х-4), событие 31 с — пример гипотезы с низкой уверенностью. -->
+<style>
+  :root {
+    --bg: #f4f5f7; --panel: #fff; --sunken: #f0f1f4; --text: #15171c; --muted: #646b78; --faint: #9aa1ad;
+    --border: #e3e6eb; --accent: #a3164f; --accent-bg: #fbeaf1;
+    --bad: #c4302b; --bad-bg: #fdeceb; --warn: #a96500; --warn-bg: #fdf3e1; --ok: #1a7f37; --ok-bg: #e6f4ea;
+    --player: #0d0f13;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0e1014; --panel: #161920; --sunken: #1d2129; --text: #e8eaef; --muted: #9ba3b0; --faint: #6b7380;
+      --border: #282d37; --accent: #ff5c9a; --accent-bg: #3a1424;
+      --bad: #ff6b61; --bad-bg: #331715; --warn: #f0a93b; --warn-bg: #33250f; --ok: #3fb950; --ok-bg: #12261a;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0e1014; --panel: #161920; --sunken: #1d2129; --text: #e8eaef; --muted: #9ba3b0; --faint: #6b7380;
+    --border: #282d37; --accent: #ff5c9a; --accent-bg: #3a1424;
+    --bad: #ff6b61; --bad-bg: #331715; --warn: #f0a93b; --warn-bg: #33250f; --ok: #3fb950; --ok-bg: #12261a;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 14px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  .num { font-variant-numeric: tabular-nums; }
+  a { color: inherit; }
+
+  /* Шапка */
+  header { display: flex; align-items: center; gap: 16px; padding: 12px 24px; background: var(--panel);
+           border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+  .crumbs { color: var(--muted); display: flex; gap: 8px; align-items: center; min-width: 0; }
+  .crumbs b { color: var(--text); font-weight: 600; }
+  .grow { flex: 1; }
+  .btn { border: 1px solid var(--border); background: var(--panel); color: var(--text); border-radius: 8px;
+         padding: 7px 12px; font: inherit; cursor: pointer; }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+  main { display: grid; grid-template-columns: minmax(280px, 380px) minmax(0, 1fr); gap: 20px;
+         padding: 20px 24px 48px; max-width: 1360px; margin: 0 auto; align-items: start; }
+
+  /* Плеер: ролики вертикальные (9:16) */
+  .player { position: sticky; top: 20px; background: var(--player); border-radius: 14px; overflow: hidden; }
+  .stage { position: relative; aspect-ratio: 9 / 16; max-height: calc(100vh - 150px); margin: 0 auto; }
+  video { width: 100%; height: 100%; object-fit: contain; display: block; }
+  .flag { position: absolute; left: 12px; top: 12px; right: 12px; display: none; align-items: center; gap: 8px;
+          background: rgba(196, 48, 43, .92); color: #fff; padding: 6px 10px; border-radius: 8px; font-weight: 600; font-size: 13px; }
+  .flag.show { display: flex; }
+  .flag.low { background: rgba(169, 101, 0, .92); }
+  .controls { padding: 10px 14px 14px; color: #e6e8ec; }
+  .scrub { position: relative; height: 22px; cursor: pointer; }
+  .scrub .track { position: absolute; left: 0; right: 0; top: 9px; height: 4px; border-radius: 2px; background: #333843; }
+  .scrub .fill { position: absolute; left: 0; top: 9px; height: 4px; border-radius: 2px; background: #fff; width: 0; }
+  .scrub .mk { position: absolute; top: 3px; width: 4px; height: 16px; margin-left: -2px; border-radius: 2px; background: var(--bad); }
+  .scrub .mk.low { background: var(--warn); }
+  .scrub .head { position: absolute; top: 5px; width: 12px; height: 12px; margin-left: -6px; border-radius: 50%; background: #fff; box-shadow: 0 0 0 3px rgba(255,255,255,.2); }
+  .crow { display: flex; align-items: center; gap: 10px; margin-top: 6px; font-size: 13px; }
+  .crow button { background: none; border: 0; color: inherit; cursor: pointer; padding: 4px; font-size: 16px; line-height: 1; }
+  .crow .t { color: #aab1bd; }
+
+  /* Правая колонка */
+  .summary { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 18px 20px; }
+  .verdict { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .pill { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; font-weight: 600; font-size: 13px; }
+  .pill.bad { background: var(--bad-bg); color: var(--bad); }
+  .pill.warn { background: var(--warn-bg); color: var(--warn); }
+  .pill.ok { background: var(--ok-bg); color: var(--ok); }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+  h1 { font-size: 20px; margin: 0; }
+  .meta { display: flex; gap: 20px; flex-wrap: wrap; color: var(--muted); margin-top: 10px; font-size: 13px; }
+  .meta b { color: var(--text); font-weight: 600; }
+
+  /* Дорожка нарушений по типам */
+  .lanes { margin-top: 16px; border-top: 1px solid var(--border); padding-top: 14px; }
+  .lanes-h { display: flex; justify-content: space-between; color: var(--muted); font-size: 12px; margin-bottom: 8px; }
+  .lane { display: grid; grid-template-columns: 210px 1fr; gap: 12px; align-items: center; height: 28px; }
+  .lane .name { font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .lane .bar { position: relative; height: 10px; background: var(--sunken); border-radius: 5px; }
+  .lane .seg { position: absolute; top: -3px; height: 16px; min-width: 8px; border-radius: 4px; background: var(--bad); cursor: pointer; }
+  .lane .seg.low { background: var(--warn); }
+  .lane .ph { position: absolute; top: -6px; bottom: -6px; width: 2px; background: var(--text); opacity: .5; }
+  .ticks { display: grid; grid-template-columns: 210px 1fr; gap: 12px; color: var(--faint); font-size: 11px; }
+  .ticks div:last-child { display: flex; justify-content: space-between; }
+
+  .list-h { display: flex; align-items: center; gap: 10px; margin: 22px 0 10px; }
+  .list-h h2 { font-size: 15px; margin: 0; }
+  .seg-ctl { display: inline-flex; background: var(--sunken); border-radius: 8px; padding: 2px; margin-left: auto; }
+  .seg-ctl button { border: 0; background: none; color: var(--muted); padding: 5px 10px; border-radius: 6px; font: inherit; font-size: 13px; cursor: pointer; }
+  .seg-ctl button.on { background: var(--panel); color: var(--text); box-shadow: 0 1px 2px rgba(0,0,0,.08); }
+
+  /* Карточка нарушения */
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 18px 20px; margin-bottom: 12px;
+          border-left: 4px solid var(--bad); transition: box-shadow .15s, border-color .15s; }
+  .card.low { border-left-color: var(--warn); }
+  .card.active { box-shadow: 0 0 0 2px var(--accent); }
+  .card-top { display: flex; align-items: flex-start; gap: 12px; }
+  .tc { flex-shrink: 0; font-weight: 700; background: var(--bad-bg); color: var(--bad); border: 0; border-radius: 8px;
+        padding: 5px 10px; font: inherit; font-weight: 700; cursor: pointer; }
+  .card.low .tc { background: var(--warn-bg); color: var(--warn); }
+  .card h3 { margin: 2px 0 2px; font-size: 16px; line-height: 1.35; }
+  .code { font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--muted); }
+  .conf { margin-left: auto; text-align: right; flex-shrink: 0; font-size: 12px; color: var(--muted); }
+  .conf b { display: block; font-size: 15px; color: var(--text); }
+  .meter { width: 72px; height: 4px; background: var(--sunken); border-radius: 2px; margin-top: 4px; overflow: hidden; }
+  .meter i { display: block; height: 100%; background: var(--bad); }
+  .card.low .meter i { background: var(--warn); }
+
+  .frames { display: flex; gap: 8px; margin: 14px 0 12px; }
+  .frame { position: relative; border: 0; padding: 0; cursor: pointer; border-radius: 8px; overflow: hidden; width: 92px; flex-shrink: 0; background: #000; }
+  .frame img { display: block; width: 100%; aspect-ratio: 9 / 16; object-fit: cover; }
+  .frame span { position: absolute; left: 4px; bottom: 4px; background: rgba(0,0,0,.7); color: #fff; font-size: 11px; padding: 1px 5px; border-radius: 4px; }
+  .frame.key { outline: 2px solid var(--bad); outline-offset: -2px; }
+  .card.low .frame.key { outline-color: var(--warn); }
+  .obs { margin: 0; flex: 1; min-width: 0; }
+  .obs-row { display: flex; gap: 16px; }
+  .obs-wrap { flex: 1; min-width: 0; }
+  .lbl { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--faint); font-weight: 600; margin-bottom: 4px; }
+
+  .norm { margin-top: 14px; background: var(--sunken); border-radius: 10px; padding: 12px 14px; }
+  .norm + .norm { margin-top: 8px; }
+  .norm-h { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+  .norm-h b { font-size: 13px; }
+  .norm-h .doc { color: var(--muted); font-size: 12px; }
+  .norm-h a { margin-left: auto; font-size: 12px; color: var(--accent); text-decoration: none; }
+  .norm q { display: block; margin-top: 6px; font-size: 13px; color: var(--text); quotes: "«" "»"; }
+
+  .actions { display: flex; gap: 8px; margin-top: 14px; }
+  .actions .btn { font-size: 13px; padding: 6px 10px; }
+
+  @media (max-width: 860px) {
+    main { grid-template-columns: 1fr; padding: 16px; }
+    header { padding: 12px 16px; }
+    .player { position: static; max-width: 380px; width: 100%; margin: 0 auto; }
+    .lane, .ticks { grid-template-columns: 110px 1fr; }
+    .obs-row { flex-direction: column; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <div class="crumbs"><span>Анализы</span><span>/</span><b>Х-4.mov</b></div>
+  <div class="grow"></div>
+  <button class="btn">Скачать JSON</button>
+  <button class="btn primary">Новый анализ</button>
+</header>
+
+<main>
+  <section class="player">
+    <div class="stage">
+      <video id="v" playsinline preload="auto" muted></video>
+      <div class="flag" id="flag"><span class="dot"></span><span id="flag-t"></span></div>
+    </div>
+    <div class="controls">
+      <div class="scrub" id="scrub">
+        <div class="track"></div><div class="fill" id="fill"></div>
+        <div id="marks"></div>
+        <div class="head" id="head"></div>
+      </div>
+      <div class="crow">
+        <button id="play" aria-label="Воспроизвести">▶</button>
+        <button id="prev" aria-label="Предыдущее нарушение" title="Предыдущее нарушение">⏮</button>
+        <button id="next" aria-label="Следующее нарушение" title="Следующее нарушение">⏭</button>
+        <span class="t num"><span id="cur">0:00</span> / <span id="dur">1:12</span></span>
+        <span class="grow"></span>
+        <button id="rate" class="num" style="font-size:13px">1×</button>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="summary">
+      <div class="verdict">
+        <span class="pill bad"><span class="dot"></span>Найдены нарушения</span>
+        <h1>2 эпизода: 1 подтверждённый, 1 на проверку</h1>
+      </div>
+      <div class="meta">
+        <span>Длительность <b class="num">1:12.7</b></span>
+        <span>Кадров/с <b class="num">30</b></span>
+        <span>Обработано за <b class="num">14 с</b></span>
+        <span>17.10.2026, 14:02</span>
+      </div>
+      <div class="lanes" id="lanes"></div>
+    </div>
+
+    <div class="list-h">
+      <h2>Нарушения</h2>
+      <div class="seg-ctl" role="tablist">
+        <button class="on">По времени</button><button>По уверенности</button>
+      </div>
+    </div>
+    <div id="cards"></div>
+  </section>
+</main>
+
+<script>
+const DURATION = 72.7;
+const violations = [
+  {
+    type_code: "NO_COUNTER", short: "Без счётчика банкнот", type: "Пересчёт/выдача наличных без счётчика-детектора",
+    timecode_sec: 31.0, confidence: 0.41, frames: [29, 31, 33],
+    observation: "Кассир передаёт наличные клиенту из рук в руки; счётчик банкнот на столе в этот момент не используется.",
+    rules: [{ clause: "п. 41", doc: "Постановление НБРК № 231 от 29.11.2019",
+      quote: "Банки осуществляют кассовые операции по пересчету и сортировке наличных денег на оборудовании, имеющем функцию проверки не менее двух машиночитаемых защитных признаков",
+      url: "https://adilet.zan.kz/rus/docs/V1900019680" }]
+  },
+  {
+    type_code: "CASH_EXPOSED_TO_VISITOR", short: "Наличные при посетителе", type: "Посторонние наличные открыто на столе при входе посетителя",
+    timecode_sec: 57.0, confidence: 0.86, frames: [55, 57, 59],
+    observation: "В кабинет входит посетитель, на столе у счётчика остаются наличные, не относящиеся к текущему клиенту.",
+    rules: [{ clause: "п. 20 ч. 2", doc: "Постановление НБРК № 231 от 29.11.2019",
+      quote: "На рабочем месте кассового работника находятся наличные деньги клиента. Все ранее принятые наличные деньги хранятся в специальных устройствах",
+      url: "https://adilet.zan.kz/rus/docs/V1900019680" }]
+  }
+];
+const LOW = 0.6;
+const fmt = s => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
+const pct = s => `${(s / DURATION) * 100}%`;
+const isLow = v => v.confidence < LOW;
+
+const v = document.getElementById("v");
+const seek = t => { v.currentTime = t; };
+// Простой статический сервер не отдаёт Range — грузим клип целиком, чтобы работала перемотка
+fetch("assets/clip.mp4").then(r => r.blob()).then(b => { v.src = URL.createObjectURL(b); });
+
+// маркеры на скраббере
+document.getElementById("marks").innerHTML = violations.map((x, i) =>
+  `<div class="mk ${isLow(x) ? "low" : ""}" style="left:${pct(x.timecode_sec)}" title="${fmt(x.timecode_sec)} · ${x.type}"></div>`).join("");
+
+// дорожки по типам
+document.getElementById("lanes").innerHTML =
+  `<div class="lanes-h"><span>Таймлайн нарушений</span><span>${violations.length} эпизода</span></div>` +
+  violations.map((x, i) => `
+    <div class="lane"><div class="name" title="${x.type}">${x.short}</div>
+      <div class="bar"><div class="seg ${isLow(x) ? "low" : ""}" data-i="${i}"
+        style="left:calc(${pct(x.frames[0])});width:calc(${pct(x.frames[2] - x.frames[0])})"></div>
+        <div class="ph"></div></div></div>`).join("") +
+  `<div class="ticks"><div></div><div class="num">${[0, .25, .5, .75, 1].map(f => `<span>${fmt(DURATION * f)}</span>`).join("")}</div></div>`;
+
+// карточки
+document.getElementById("cards").innerHTML = violations.map((x, i) => `
+  <article class="card ${isLow(x) ? "low" : ""}" id="c${i}">
+    <div class="card-top">
+      <button class="tc num" data-t="${x.timecode_sec}">${fmt(x.timecode_sec)}</button>
+      <div>
+        <h3>${x.type}</h3>
+        <span class="code">${x.type_code}</span>
+        ${isLow(x) ? ` · <span class="pill warn" style="padding:1px 8px;font-size:12px">Нужна ручная проверка</span>` : ""}
+      </div>
+      <div class="conf">Уверенность<b class="num">${Math.round(x.confidence * 100)}%</b>
+        <div class="meter"><i style="width:${x.confidence * 100}%"></i></div></div>
+    </div>
+    <div class="obs-row">
+      <div class="frames">${x.frames.map(t => `
+        <button class="frame ${t === x.timecode_sec ? "key" : ""}" data-t="${t}">
+          <img src="assets/f${t}.jpg" alt="Кадр ${fmt(t)}"><span class="num">${fmt(t)}</span></button>`).join("")}
+      </div>
+      <div class="obs-wrap" style="margin-top:14px">
+        <div class="lbl">Что видно на кадре</div>
+        <p class="obs">${x.observation}</p>
+      </div>
+    </div>
+    ${x.rules.map(r => `
+      <div class="norm">
+        <div class="lbl">Норма НБРК</div>
+        <div class="norm-h"><b>${r.clause}</b><span class="doc">${r.doc}</span>
+          <a href="${r.url}" target="_blank" rel="noopener">adilet.zan.kz ↗</a></div>
+        <q>${r.quote}</q>
+      </div>`).join("")}
+    <div class="actions">
+      <button class="btn">Подтвердить</button><button class="btn">Не нарушение</button>
+    </div>
+  </article>`).join("");
+
+document.addEventListener("click", e => {
+  const t = e.target.closest("[data-t]");
+  if (t) { seek(+t.dataset.t); return; }
+  const s = e.target.closest(".seg");
+  if (s) seek(violations[+s.dataset.i].timecode_sec);
+});
+
+// скраббер
+const scrub = document.getElementById("scrub");
+scrub.addEventListener("click", e => {
+  const r = scrub.getBoundingClientRect();
+  seek(((e.clientX - r.left) / r.width) * (v.duration || DURATION));
+});
+
+// управление
+const play = document.getElementById("play");
+play.onclick = () => (v.paused ? v.play() : v.pause());
+v.onplay = () => (play.textContent = "❚❚");
+v.onpause = () => (play.textContent = "▶");
+const jump = dir => {
+  const t = v.currentTime;
+  const list = violations.map(x => x.timecode_sec);
+  const target = dir > 0 ? list.find(x => x > t + 0.5) : [...list].reverse().find(x => x < t - 0.5);
+  if (target != null) seek(target);
+};
+document.getElementById("next").onclick = () => jump(1);
+document.getElementById("prev").onclick = () => jump(-1);
+const rates = [1, 1.5, 2, 0.5];
+document.getElementById("rate").onclick = e => {
+  v.playbackRate = rates[(rates.indexOf(v.playbackRate) + 1) % rates.length];
+  e.target.textContent = `${v.playbackRate}×`;
+};
+
+// синхронизация плеера, дорожек и карточек
+const flag = document.getElementById("flag");
+function sync() {
+  const t = v.currentTime, d = v.duration || DURATION;
+  document.getElementById("cur").textContent = fmt(t);
+  document.getElementById("fill").style.width = `${(t / d) * 100}%`;
+  document.getElementById("head").style.left = `${(t / d) * 100}%`;
+  document.querySelectorAll(".ph").forEach(p => (p.style.left = `${(t / d) * 100}%`));
+  const i = violations.findIndex(x => t >= x.frames[0] && t <= x.frames[2]);
+  document.querySelectorAll(".card").forEach((c, j) => c.classList.toggle("active", j === i));
+  flag.classList.toggle("show", i >= 0);
+  if (i >= 0) {
+    flag.classList.toggle("low", isLow(violations[i]));
+    document.getElementById("flag-t").textContent = violations[i].type;
+  }
+}
+v.addEventListener("timeupdate", sync);
+v.addEventListener("seeked", () => {
+  sync();
+  document.querySelector(".card.active")?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+});
+v.addEventListener("loadedmetadata", () => (document.getElementById("dur").textContent = fmt(v.duration)));
+sync();
+</script>
+</body>
+</html>

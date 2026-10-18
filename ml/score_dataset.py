@@ -14,7 +14,7 @@ from pathlib import Path
 
 from common import AUGS, load_labels
 
-from app.vj.queries import QUERIES, gate_questions, ground_questions
+from app.vj.detector import scoring_questions
 from app.vj.runtime import VideoJev
 
 
@@ -46,7 +46,7 @@ def main():
     if a.only:
         keep = set(a.only.split(","))
         videos = [v for v in videos if v["file"] in keep]
-    questions = gate_questions() + ground_questions([q.code for q in QUERIES])
+    questions = scoring_questions()  # тот же список, что задаёт сервис (vj.detector)
 
     with out.open("a") as f:
         for aug in a.augs.split(","):

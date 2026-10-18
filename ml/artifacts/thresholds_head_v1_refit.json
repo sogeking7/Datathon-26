@@ -1,0 +1,9 @@
+{
+ "default": 0.45,
+ "per_type": {
+  "UNATTENDED_CASH": 0.65,
+  "DOOR_OPEN": 0.4
+ },
+ "max_events": 1,
+ "policy": "max"
+}

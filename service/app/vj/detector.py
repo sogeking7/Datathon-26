@@ -10,12 +10,13 @@
 
 import json
 import logging
+import math
 import os
 import time
 from dataclasses import dataclass
 from pathlib import Path
 
-from .queries import BY_CODE, gate_questions, ground_questions
+from .queries import BY_CODE, QUERIES, gate_questions, ground_questions
 
 log = logging.getLogger(__name__)
 
@@ -40,11 +41,35 @@ def gate_scores(window_results: list[tuple[tuple[float, float], dict[str, list[f
     return best
 
 
+def scoring_questions() -> list[dict]:
+    """Вопросы в том порядке, в каком их задавал ml/score_dataset.py (на этих оценках обучена голова и
+    подобраны пороги). VideoJev упаковывает вопросы в один причинный контекст, поэтому ответ зависит от
+    предыдущих вопросов: grounding, заданный в одиночку, давал другую кривую (Х-20: таймкод 0.2 с вместо
+    4.25 с офлайн при разметке 5 с). Для окна с найденным нарушением задаём тот же полный список."""
+    return gate_questions() + ground_questions([q.code for q in QUERIES])
+
+
+def threshold_for(thresholds: dict, code: str) -> float:
+    return thresholds.get("per_type", {}).get(code, thresholds["default"])
+
+
 def decide(scores: dict[str, TypeScore], thresholds: dict) -> list[TypeScore]:
-    per = thresholds.get("per_type", {})
-    hits = [s for s in scores.values() if s.score >= per.get(s.code, thresholds["default"])]
-    hits.sort(key=lambda s: s.score - per.get(s.code, thresholds["default"]), reverse=True)
+    hits = [s for s in scores.values() if s.score >= threshold_for(thresholds, s.code)]
+    hits.sort(key=lambda s: s.score - threshold_for(thresholds, s.code), reverse=True)
     return hits[: thresholds.get("max_events", 2)]
+
+
+def confidence_from_margin(score: float, threshold: float) -> float:
+    """Уверенность для ответа API по запасу гейта над порогом: [0.5, 1].
+
+    analyzer.MIN_CONFIDENCE = 0.5 отбрасывает события с уверенностью ниже 0.5, а откалиброванные пороги
+    типов доходят до 0.05 (ml/artifacts/thresholds.json). Пока в confidence писалась сырая вероятность
+    гейта, сервис молча терял все срабатывания со score в [порог, 0.5) — развёрнутое правило отличалось
+    от того, что оценивал calibrate.py. Порог отображается в 0.5, score = 1 — в 1.
+    """
+    if threshold >= 1.0:
+        return 1.0
+    return min(1.0, 0.5 + 0.5 * max(score - threshold, 0.0) / (1.0 - threshold))
 
 
 def pick_timecode(code: str, times: list[float], probs: list[float]) -> tuple[float, list[float]]:
@@ -64,6 +89,51 @@ def load_thresholds(path: str | None) -> dict:
     if path and Path(path).is_file():
         return {**DEFAULT_THRESHOLDS, **json.loads(Path(path).read_text())}
     return dict(DEFAULT_THRESHOLDS)
+
+
+def _logit(p: float, eps: float = 1e-6) -> float:
+    p = min(max(p, eps), 1 - eps)
+    return math.log(p / (1 - p))
+
+
+def sidak_scores(window_results: list[tuple[tuple[float, float], dict[str, list[float]]]],
+                 calibration: dict[str, dict]) -> dict[str, TypeScore]:
+    """Политика zsidak (ml/decision.py, эксперимент E03e): оценка типа = (1 − p_min)^N.
+
+    p — верхний хвост гауссианы, подогнанной к логитам «да» на окнах нормальных роликов (calibration[code] =
+    {mu, sigma}); N — число окон ролика. Максимум из N шумных оценок растёт с N, из-за чего длинные нормы
+    (Х-5, Х-14, Х-39) давали ложные срабатывания; p-value на ролик от N не зависит. Окно — с минимальным p.
+    Типы без калибровки оцениваются как в gate_scores (максимум)."""
+    best: dict[str, TypeScore] = {}
+    n = len(window_results)
+    per_code: dict[str, list[tuple[tuple[float, float], float]]] = {}
+    for win, probs in window_results:
+        for code, p in probs.items():
+            per_code.setdefault(code, []).append((win, p[BY_CODE[code].yes_index]))
+    for code, ws in per_code.items():
+        c = calibration.get(code)
+        if not c:
+            win, s = max(ws, key=lambda x: x[1])
+        else:
+            pv = [(w, max(0.5 * math.erfc((_logit(s) - c["mu"]) / c["sigma"] / math.sqrt(2)), 1e-9)) for w, s in ws]
+            win, p_min = min(pv, key=lambda x: x[1])
+            s = (1 - p_min) ** n
+        best[code] = TypeScore(code, float(s), win)
+    return best
+
+
+def choose(gates: list[tuple[tuple[float, float], dict[str, list[float]]]], thresholds: dict) -> list[TypeScore]:
+    """Решение по гейтам всех окон согласно thresholds["policy"]: "max" (первый выпуск) или "zsidak+eventsmax".
+
+    zsidak+eventsmax: вердикт — по оценкам Шидака с порогами thresholds; тип и окно для таймкода — по правилу
+    максимума с порогами thresholds["base"], если оно тоже срабатывает (иначе — лучший тип по Шидаку)."""
+    if thresholds.get("policy", "max") != "zsidak+eventsmax":
+        return decide(gate_scores(gates), thresholds)
+    hits = decide(sidak_scores(gates, thresholds.get("calibration", {})), thresholds)
+    if not hits:
+        return []
+    base = {**thresholds["base"], "max_events": thresholds.get("max_events", 1)}
+    return decide(gate_scores(gates), base) or hits
 
 
 class VideoJevDetector:
@@ -92,23 +162,27 @@ class VideoJevDetector:
                 gates.append(((a, b), {r.id: r.probabilities for r in res}))
                 vj.free(w)
                 progress(0.8 * (i + 1) / len(spans))
-            hits = decide(gate_scores(gates), self.thresholds)
+            hits = choose(gates, self.thresholds)
             t_gate = time.perf_counter()
             out = []
             for h in hits:
                 # Окно готовим заново: держать пиксели всех окон в RAM дороже, чем пересобрать одно.
                 w = vj.prepare_window(sample, *h.window)
-                (g,) = vj.ask(w, ground_questions([h.code]))
+                g = next(r for r in vj.ask(w, scoring_questions()) if r.task == "grounding" and r.id == h.code)
                 tc, ev = pick_timecode(h.code, g.times, g.probabilities)
                 vj.free(w)
                 out.append(Detection(
-                    code=h.code, timecode_sec=tc, confidence=h.score, evidence_ts=ev,
-                    observation=OBSERVATIONS[h.code],
+                    code=h.code, timecode_sec=tc,
+                    confidence=confidence_from_margin(h.score, threshold_for(self.thresholds, h.code)),
+                    evidence_ts=ev, observation=OBSERVATIONS[h.code],
                 ))
             progress(1.0)
-            log.info("videojev %s: очередь %.1fs, декод %.1fs, гейты %.1fs (%d окон), grounding %.1fs",
+            log.info("videojev %s: очередь %.1fs, декод %.1fs, гейты %.1fs (%d окон), grounding %.1fs; "
+                     "гейты: %s; выбрано: %s",
                      Path(path).name, t_lock - t0, t_dec - t_lock, t_gate - t_dec, len(spans),
-                     time.perf_counter() - t_gate)
+                     time.perf_counter() - t_gate,
+                     {c: round(s.score, 3) for c, s in gate_scores(gates).items()},
+                     [(h.code, round(h.score, 3), round(h.window[0], 1)) for h in hits])
             return out
 
 

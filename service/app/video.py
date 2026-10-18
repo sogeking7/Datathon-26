@@ -64,13 +64,35 @@ def iter_frames(path: str, sample_fps: float) -> Iterator[tuple[float, np.ndarra
 
 
 def grab_frame(path: str, timestamp_sec: float) -> np.ndarray:
+    """Кадр на timestamp_sec. Перемотка по миллисекундам на части .mov с переменной частотой кадров не
+    срабатывает после ~11 с (Х-23 из датасета), поэтому есть запасные пути: перемотка по номеру кадра,
+    затем последовательное чтение до нужного кадра (последний прочитанный, если файл короче)."""
+    t = max(0.0, timestamp_sec)
     cap = cv2.VideoCapture(path)
     try:
-        cap.set(cv2.CAP_PROP_POS_MSEC, max(0.0, timestamp_sec) * 1000)
+        cap.set(cv2.CAP_PROP_POS_MSEC, t * 1000)
         ok, frame = cap.read()
-        if not ok:
+        if ok:
+            return frame
+        fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
+        target = int(round(t * fps))
+        cap.set(cv2.CAP_PROP_POS_FRAMES, target)
+        ok, frame = cap.read()
+        if ok:
+            return frame
+    finally:
+        cap.release()
+    cap = cv2.VideoCapture(path)
+    try:
+        last = None
+        for idx in range(target + 1):
+            ok, frame = cap.read()
+            if not ok:
+                break
+            last = frame
+        if last is None:
             raise VideoError(f"Не удалось прочитать кадр на {timestamp_sec:.1f} с")
-        return frame
+        return last
     finally:
         cap.release()
 

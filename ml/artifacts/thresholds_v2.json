@@ -1,0 +1,49 @@
+{
+ "policy": "zsidak+eventsmax",
+ "default": 0.85,
+ "per_type": {},
+ "max_events": 1,
+ "calibration": {
+  "SAFE_OPEN": {
+   "mu": -5.566484792777581,
+   "sigma": 2.6978515171768573
+  },
+  "UNATTENDED_CASH": {
+   "mu": -4.302952932719479,
+   "sigma": 2.418278584149511
+  },
+  "DOOR_OPEN": {
+   "mu": -5.188925118322333,
+   "sigma": 3.2581053516616874
+  },
+  "NO_COUNTER": {
+   "mu": -1.922545594217512,
+   "sigma": 2.065880256198027
+  },
+  "UNAUTHORIZED_PERSON": {
+   "mu": -5.815393804050223,
+   "sigma": 1.2982969537777156
+  },
+  "CASH_EXPOSED_TO_VISITOR": {
+   "mu": -5.343630528599212,
+   "sigma": 2.444891052817455
+  },
+  "CIT_PROCEDURE": {
+   "mu": -6.804240914922966,
+   "sigma": 2.9276157669723615
+  },
+  "PERSONAL_ITEMS": {
+   "mu": -3.6748557967603057,
+   "sigma": 1.4875732210455854
+  }
+ },
+ "base": {
+  "default": 0.45,
+  "per_type": {
+   "UNATTENDED_CASH": 0.25,
+   "NO_COUNTER": 0.7,
+   "UNAUTHORIZED_PERSON": 0.05,
+   "CASH_EXPOSED_TO_VISITOR": 0.15
+  }
+ }
+}

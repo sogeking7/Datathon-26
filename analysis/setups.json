@@ -1,0 +1,21 @@
+{
+  "meta": {
+    "description": "Camera-session groups of the organizer's dataset: videos whose static background (median frame over the clip, 24x44 (w x h) grayscale) correlates at >= 0.92 share a setup. Produced by ml/analysis/scene_groups.py on 2026-10-18. Use for group-aware cross-validation (leave-one-setup-out): a held-out setup approximates the jury's 'different camera angle' condition better than leave-one-video-out, because every setup contains violation/normal twin recordings of the same scene.",
+    "method": "ml/analysis/scene_groups.py --threshold 0.92",
+    "notes": {
+      "S0": "two cashiers' desks visible, long clips (X-1/X-2 Latin X); Х-4=Х-47 and Х-5=Х-48 are byte-identical duplicates",
+      "S2": "darker (mean gray 122-126 vs ~138 elsewhere); camera physically moves inside Х-11 and Х-12 (first-vs-last background correlation drops by 0.5)",
+      "pairs": "violation/normal twins recorded back to back in the same session: X-2/Х-3, Х-16/Х-17, Х-18/Х-19, Х-20/Х-21, Х-22/Х-23, Х-11/Х-12, Х-24/Х-25, Х-26/Х-27, Х-28/Х-29, Х-30..Х-32, Х-38/Х-39, Х-43/Х-44/Х-46"
+    }
+  },
+  "setups": {
+    "S0": ["X-1.mov", "X-2.mov", "Х-3.mov", "Х-4.mov", "Х-47.mov", "Х-5.mov", "Х-48.mov"],
+    "S1": ["Х-10.mov", "Х-13.mov", "Х-15.mov", "Х-16.mov", "Х-17.mov", "Х-18.mov", "Х-19.mov", "Х-20.mov", "Х-21.mov", "Х-22.mov", "Х-23.mov"],
+    "S2": ["Х-8.mov", "Х-11.mov", "Х-12.mov", "Х-14.mov"],
+    "S3": ["Х-24.mov", "Х-25.mov", "Х-26.mov", "Х-27.mov", "Х-28.mov", "Х-29.mov"],
+    "S4": ["Х-30.mov", "Х-31.mov", "Х-32.mov"],
+    "S5": ["Х-33.mov", "Х-40.mov", "Х-45.mov"],
+    "S6": ["Х-34.mov", "Х-35.mov", "Х-37.mov", "Х-38.mov", "Х-39.mov"],
+    "S7": ["Х-43.mov", "Х-44.mov", "Х-46.mov"]
+  }
+}
