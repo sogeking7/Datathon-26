@@ -12,3 +12,9 @@ __pycache__/
 .env
 data/
 .pytest_cache/
+
+# Кадры и клип из датасета для макетов
+design/*/assets/
+
+# Прогоны модели: оценки окон и кэш скрытых состояний (ml/score_dataset.py), лежат на GPU-сервере
+runs/

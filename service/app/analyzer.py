@@ -4,13 +4,16 @@
 (app/vj), включается DETECTOR=videojev; BaselineDetector-заглушка нужна для тестов без GPU.
 """
 
+import logging
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Protocol
 
 from .config import settings
 from .rules import CATALOG, format_rules
-from .video import VideoInfo, grab_frame, probe, to_jpeg_base64
+from .video import VideoError, VideoInfo, grab_frame, probe, to_jpeg_base64
+
+log = logging.getLogger(__name__)
 
 ProgressFn = Callable[[float], None]
 
@@ -53,6 +56,9 @@ def _detectors() -> list[Detector]:
 DETECTORS: list[Detector] = _detectors()
 
 # Ниже этого порога событие не попадает в ответ (ложные срабатывания штрафуются).
+# Контракт для детекторов: confidence — уже калиброванная уверенность, а не сырой score модели;
+# событие, прошедшее порог детектора, обязано иметь confidence >= MIN_CONFIDENCE
+# (см. vj.detector.confidence_from_margin), иначе решение детектора молча отменяется здесь.
 MIN_CONFIDENCE = 0.5
 # События одного типа ближе этого интервала схлопываются в одно.
 MERGE_WINDOW_SEC = 5.0
@@ -68,6 +74,17 @@ def _merge(dets: list[Detection]) -> list[Detection]:
             continue
         out.append(d)
     return sorted(out, key=lambda d: d.timecode_sec)
+
+
+def _evidence_frames(path: str, ts_list: list[float]) -> list[dict]:
+    """Кадры-доказательства; нечитаемый кадр пропускается, а не роняет весь анализ (вердикт уже принят)."""
+    frames = []
+    for t in ts_list:
+        try:
+            frames.append({"timestamp_sec": round(t, 1), "image_base64": to_jpeg_base64(grab_frame(path, t))})
+        except VideoError as e:
+            log.warning("кадр-доказательство пропущен: %s", e)
+    return frames
 
 
 def analyze(path: str, progress: ProgressFn = lambda p: None) -> dict:
@@ -95,10 +112,7 @@ def analyze(path: str, progress: ProgressFn = lambda p: None) -> dict:
                     {"document": r.document, "clause": r.clause, "quote": r.quote, "url": r.url}
                     for r in vt.rules
                 ],
-                "evidence_frames": [
-                    {"timestamp_sec": round(t, 1), "image_base64": to_jpeg_base64(grab_frame(path, t))}
-                    for t in ts_list
-                ],
+                "evidence_frames": _evidence_frames(path, ts_list),
             }
         )
     return {
